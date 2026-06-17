@@ -109,7 +109,9 @@ export class EventMediaStack extends Stack {
     // --- メディア/字幕の Fargate サービス群 ---
     const logGroup = new logs.LogGroup(this, "Logs", {
       retention: logs.RetentionDays.ONE_WEEK,
-      removalPolicy: RemovalPolicy.DESTROY,
+      // スタックがロールバック/削除されてもログを残す (デバッグに必要)。
+      // 1 週間で自動失効するので手動クリーンアップは不要。
+      removalPolicy: RemovalPolicy.RETAIN,
     });
 
     // 字幕ワーカーは Transcribe/Translate/Bedrock を呼ぶため最小権限を付与 (DESIGN.md 6.2)。
