@@ -74,6 +74,19 @@ export interface EventMediaStackProps extends StackProps {
   hostedZoneName?: string;
   /** LiveKit シグナリング用ドメイン (例: `media.example.com`)。`event-XXXXXXXX.${mediaDomainName}` で per-event 名を組み立てる。 */
   mediaDomainName?: string;
+  /**
+   * YouTube RTMP 取り込み URL (R12, ADR 0006 D-4)。
+   * 例: `rtmp://a.rtmp.youtube.com/live2`。control-api の Egress 起動 API が参照し、
+   * `startRoomCompositeEgress` の `streamOutputs.urls = [${rtmpUrl}/${streamKey}]` を組み立てる。
+   * 現状の EventMediaStack 内では参照されない (将来 Egress 自動起動時の予約フィールド)。
+   */
+  rtmpUrl?: string;
+  /**
+   * YouTube ストリームキーを格納した Secret のフィールド名 (R12)。
+   * 既存の `stagecast/youtube` Secret 内のキーを指す (例: `defaultStreamKey`)。
+   * control-api の Egress 起動 API が Secret 値を取得して使う。
+   */
+  streamKeyRef?: string;
 }
 
 /**

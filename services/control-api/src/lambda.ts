@@ -20,6 +20,7 @@ import {
   type SecretsWriter,
   type SettingsService,
 } from "./usecases/settings.js";
+import type { EgressStarter, StreamKeyResolver } from "./usecases/egress.js";
 
 /** Secrets Manager の最小読み取り操作。テストでは fake を注入する。 */
 export interface SecretsResolver {
@@ -117,13 +118,70 @@ export async function buildControlApiFromEnv(options: BuildFromEnvOptions = {}):
   const livekitMinter = await resolveLiveKit(env, secrets);
   const auth = resolveAdminAuth(env);
   const settings = resolveSettings(env, secrets, secretsWriter);
+  // R12: LiveKit Egress と YouTube Secret resolver。LIVEKIT_URL + LIVEKIT_API_KEY/SECRET と
+  // YOUTUBE_SECRET_ARN が揃ったときのみ有効化。それ以外は HTTP 層が 503 を返す。
+  const egressStarter = resolveEgressStarter(env);
+  const streamKeyResolver = resolveStreamKeyResolver(env, secrets);
 
   return buildControlApi({
     inviteSecret,
     livekitMinter,
     auth,
     settings,
+    egressStarter,
+    streamKeyResolver,
   });
+}
+
+/**
+ * LiveKit Egress 起動アダプタを env から組み立てる (R12)。
+ * LIVEKIT_URL と LIVEKIT_API_KEY/SECRET が揃わなければ undefined を返す。
+ */
+function resolveEgressStarter(env: NodeJS.ProcessEnv): EgressStarter | undefined {
+  const url = env.LIVEKIT_URL;
+  const apiKey = env.LIVEKIT_API_KEY;
+  const apiSecret = env.LIVEKIT_API_SECRET;
+  if (!url || !apiKey || !apiSecret) return undefined;
+  return {
+    async startRtmpEgress({ roomName, streamUrl }) {
+      const sdk = await import("livekit-server-sdk");
+      const client = new sdk.EgressClient(url, apiKey, apiSecret);
+      const info = await client.startRoomCompositeEgress(
+        roomName,
+        {
+          stream: new sdk.StreamOutput({
+            protocol: sdk.StreamProtocol.RTMP,
+            urls: [streamUrl],
+          }),
+        },
+        { layout: "grid" },
+      );
+      return { egressId: info.egressId };
+    },
+  };
+}
+
+/**
+ * YouTube ストリームキー解決アダプタを env から組み立てる (R12)。
+ * YOUTUBE_SECRET_ARN が無ければ undefined を返す。
+ * `streamKeyRef` は Secret JSON のフィールド名 (例: `defaultStreamKey`)。
+ */
+function resolveStreamKeyResolver(
+  env: NodeJS.ProcessEnv,
+  secrets: SecretsResolver,
+): StreamKeyResolver | undefined {
+  const arn = env.YOUTUBE_SECRET_ARN;
+  if (!arn) return undefined;
+  return {
+    async resolve(streamKeyRef) {
+      const data = await secrets.getSecretJson(arn);
+      const value = data[streamKeyRef];
+      if (!value) {
+        throw new Error(`stream key field '${streamKeyRef}' not found in YouTube secret`);
+      }
+      return value;
+    },
+  };
 }
 
 /**
