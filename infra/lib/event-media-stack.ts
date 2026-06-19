@@ -721,6 +721,13 @@ export function liveKitEgressConfig(valkeyEndpoint: string): string {
     `  address: ${valkeyEndpoint}:6379`,
     "  use_tls: true",
     `ws_url: ws://localhost:${LIVEKIT_PORTS.signaling}`,
+    // R12: Fargate の 2 vCPU で RoomComposite Egress を許可する (デフォルト 4 を 1 に緩和)。
+    // LiveKit 公式推奨は 4 vCPU だが、検証/小規模配信向けに緩める。
+    // 品質劣化や Chrome がフリーズする可能性があるため、本番では cpu/memory を増やす方が安全。
+    "cpu_cost:",
+    "  room_composite_cpu_cost: 1",
+    "  audio_room_composite_cpu_cost: 1",
+    "  web_cpu_cost: 1",
     "logging:",
     "  level: info",
     "  json: true",

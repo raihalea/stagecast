@@ -156,19 +156,38 @@ function resolveEgressStarter(
       if (!apiKey || !apiSecret) {
         throw new Error("LiveKit Secret に apiKey / apiSecret がない");
       }
-      const sdk = await import("livekit-server-sdk");
-      const client = new sdk.EgressClient(livekitUrl, apiKey, apiSecret);
-      const info = await client.startRoomCompositeEgress(
+      // wss:// は HTTP リクエスト用に https:// に変換する (LiveKit SDK の Twirp HTTP は https を使う)。
+      const httpUrl = livekitUrl.replace(/^wss:\/\//i, "https://").replace(/^ws:\/\//i, "http://");
+      console.log(JSON.stringify({
+        msg: "egress.startRtmpEgress",
+        livekitUrl,
+        httpUrl,
         roomName,
-        {
-          stream: new sdk.StreamOutput({
-            protocol: sdk.StreamProtocol.RTMP,
-            urls: [streamUrl],
-          }),
-        },
-        { layout: "grid" },
-      );
-      return { egressId: info.egressId };
+        streamUrl: streamUrl.replace(/\/[^/]+$/, "/***"), // streamKey 部分は伏字
+      }));
+      const sdk = await import("livekit-server-sdk");
+      const client = new sdk.EgressClient(httpUrl, apiKey, apiSecret);
+      try {
+        const info = await client.startRoomCompositeEgress(
+          roomName,
+          {
+            stream: new sdk.StreamOutput({
+              protocol: sdk.StreamProtocol.RTMP,
+              urls: [streamUrl],
+            }),
+          },
+          { layout: "grid" },
+        );
+        console.log(JSON.stringify({ msg: "egress.started", egressId: info.egressId }));
+        return { egressId: info.egressId };
+      } catch (err) {
+        console.error(JSON.stringify({
+          msg: "egress.failed",
+          error: err instanceof Error ? err.message : String(err),
+          stack: err instanceof Error ? err.stack : undefined,
+        }));
+        throw err;
+      }
     },
   };
 }
