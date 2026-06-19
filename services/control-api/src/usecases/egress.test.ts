@@ -15,8 +15,10 @@ function buildEvents() {
   });
 }
 
-function fakeStarter(): EgressStarter & { calls: { roomName: string; streamUrl: string }[] } {
-  const calls: { roomName: string; streamUrl: string }[] = [];
+function fakeStarter(): EgressStarter & {
+  calls: { livekitUrl: string; roomName: string; streamUrl: string }[];
+} {
+  const calls: { livekitUrl: string; roomName: string; streamUrl: string }[] = [];
   return {
     calls,
     async startRtmpEgress(input) {
@@ -63,6 +65,7 @@ describe("EgressService.start (R12)", () => {
       "rtmp://a.rtmp.youtube.com/live2/secret-stream-key",
     );
     expect(starter.calls[0]?.roomName).toBe(created.id);
+    expect(starter.calls[0]?.livekitUrl).toBe("wss://x");
   });
 
   it("status が live でなければ ValidationError", async () => {

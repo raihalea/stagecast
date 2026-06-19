@@ -25,11 +25,16 @@ export interface StreamKeyResolver {
 export interface EgressStarter {
   /**
    * RoomComposite Egress を起動する。
+   * - `livekitUrl`: per-event の LiveKit signaling URL (events.media.livekitUrl)
    * - `roomName`: LiveKit のルーム名 (eventId と一致)
    * - `streamUrl`: RTMP 完全 URL (`${rtmpUrl}/${streamKey}` で組み立て済み)
    * 戻り値: LiveKit が払い出す egressId
    */
-  startRtmpEgress(input: { roomName: string; streamUrl: string }): Promise<{ egressId: string }>;
+  startRtmpEgress(input: {
+    livekitUrl: string;
+    roomName: string;
+    streamUrl: string;
+  }): Promise<{ egressId: string }>;
 }
 
 export interface EgressServiceConfig {
@@ -68,6 +73,7 @@ export function createEgressService(config: EgressServiceConfig) {
       // YouTube Live は `${rtmpUrl}/${streamKey}` 形式。末尾の `/` を整える。
       const streamUrl = joinRtmpUrl(youtube.rtmpUrl, streamKey);
       const result = await config.starter.startRtmpEgress({
+        livekitUrl: event.media.livekitUrl,
         roomName: eventId,
         streamUrl,
       });

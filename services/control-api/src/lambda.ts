@@ -118,9 +118,11 @@ export async function buildControlApiFromEnv(options: BuildFromEnvOptions = {}):
   const livekitMinter = await resolveLiveKit(env, secrets);
   const auth = resolveAdminAuth(env);
   const settings = resolveSettings(env, secrets, secretsWriter);
-  // R12: LiveKit Egress と YouTube Secret resolver。LIVEKIT_URL + LIVEKIT_API_KEY/SECRET と
-  // YOUTUBE_SECRET_ARN が揃ったときのみ有効化。それ以外は HTTP 層が 503 を返す。
-  const egressStarter = resolveEgressStarter(env);
+  // R12: LiveKit Egress と YouTube Secret resolver。
+  // - LIVEKIT_SECRET_ARN があれば egressStarter (livekitUrl は per-event で渡される) を構築
+  // - YOUTUBE_SECRET_ARN があれば streamKeyResolver を構築
+  // どちらかが欠ければ HTTP 層が 503 を返す。
+  const egressStarter = resolveEgressStarter(env, secrets);
   const streamKeyResolver = resolveStreamKeyResolver(env, secrets);
 
   return buildControlApi({
@@ -134,18 +136,28 @@ export async function buildControlApiFromEnv(options: BuildFromEnvOptions = {}):
 }
 
 /**
- * LiveKit Egress 起動アダプタを env から組み立てる (R12)。
- * LIVEKIT_URL と LIVEKIT_API_KEY/SECRET が揃わなければ undefined を返す。
+ * LiveKit Egress 起動アダプタを env から組み立てる (R12, ADR 0008 D-1)。
+ *
+ * LIVEKIT_SECRET_ARN から apiKey/apiSecret を取得し、livekitUrl は呼び出し時に
+ * events.media.livekitUrl から渡される (per-event URL ルーティング)。
+ * LIVEKIT_SECRET_ARN が無ければ undefined を返す。
  */
-function resolveEgressStarter(env: NodeJS.ProcessEnv): EgressStarter | undefined {
-  const url = env.LIVEKIT_URL;
-  const apiKey = env.LIVEKIT_API_KEY;
-  const apiSecret = env.LIVEKIT_API_SECRET;
-  if (!url || !apiKey || !apiSecret) return undefined;
+function resolveEgressStarter(
+  env: NodeJS.ProcessEnv,
+  secrets: SecretsResolver,
+): EgressStarter | undefined {
+  const livekitSecretArn = env.LIVEKIT_SECRET_ARN;
+  if (!livekitSecretArn) return undefined;
   return {
-    async startRtmpEgress({ roomName, streamUrl }) {
+    async startRtmpEgress({ livekitUrl, roomName, streamUrl }) {
+      const data = await secrets.getSecretJson(livekitSecretArn);
+      const apiKey = data.apiKey;
+      const apiSecret = data.apiSecret;
+      if (!apiKey || !apiSecret) {
+        throw new Error("LiveKit Secret に apiKey / apiSecret がない");
+      }
       const sdk = await import("livekit-server-sdk");
-      const client = new sdk.EgressClient(url, apiKey, apiSecret);
+      const client = new sdk.EgressClient(livekitUrl, apiKey, apiSecret);
       const info = await client.startRoomCompositeEgress(
         roomName,
         {
