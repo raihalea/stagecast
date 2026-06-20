@@ -294,7 +294,7 @@ export class EventMediaStack extends Stack {
           }
         : undefined;
 
-    const sfu = addService("Sfu", images.sfu ?? "livekit/livekit-server:v1.10.0", {
+    const sfu = addService("Sfu", images.sfu ?? "livekit/livekit-server:latest", {
       serviceName: SFU_SERVICE_NAME,
       ports: [
         { containerPort: LIVEKIT_PORTS.signaling, protocol: ecs.Protocol.TCP },
@@ -318,7 +318,7 @@ export class EventMediaStack extends Stack {
     if (tlsProps) {
       egressEnvironment.LIVEKIT_WS_URL = `wss://event-${props.eventId.slice(0, 8)}.${tlsProps.mediaDomainName}`;
     }
-    const egress = addService("Egress", images.egress ?? "livekit/egress:v1.13.0", {
+    const egress = addService("Egress", images.egress ?? "livekit/egress:latest", {
       taskRole: egressTaskRole,
       environment: egressEnvironment,
       secrets: livekitSecrets,
