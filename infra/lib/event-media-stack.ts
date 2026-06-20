@@ -714,8 +714,14 @@ export function liveKitServerConfig(valkeyEndpoint: string): string {
     // ENI 越しの外部 IP を ICE candidate に広告する。NLB は経由しない。
     "  use_external_ip: true",
     "redis:",
+    // R12-followup: ElastiCache Valkey Serverless は cluster mode 必須。
+    // address だけだと LiveKit が単一クライアントモード (redis.NewClient) で接続するため
+    // psrpc の SUBSCRIBE/PUBLISH が sharded pub/sub と整合せず、Egress が SFU に発見されない。
+    // cluster_addresses を指定すると redis.NewClusterClient で接続し、cluster mode で正常動作する。
+    // (livekit/protocol redis/redis.go の構築ロジック参照)
+    "  cluster_addresses:",
+    `    - ${valkeyEndpoint}:6379`,
     // ElastiCache serverless は in-transit 暗号化必須なので TLS を有効化。
-    `  address: ${valkeyEndpoint}:6379`,
     "  use_tls: true",
     "logging:",
     "  level: info",
@@ -732,7 +738,9 @@ export function liveKitServerConfig(valkeyEndpoint: string): string {
 export function liveKitEgressConfig(valkeyEndpoint: string): string {
   return [
     "redis:",
-    `  address: ${valkeyEndpoint}:6379`,
+    // R12-followup: cluster_addresses で Valkey Serverless の cluster mode を有効化 (上記同様)。
+    "  cluster_addresses:",
+    `    - ${valkeyEndpoint}:6379`,
     "  use_tls: true",
     `ws_url: ws://localhost:${LIVEKIT_PORTS.signaling}`,
     // R12: Fargate の 2 vCPU で RoomComposite Egress を許可する (デフォルト 4 を 1 に緩和)。
