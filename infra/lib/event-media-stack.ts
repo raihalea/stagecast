@@ -75,6 +75,17 @@ export interface EventMediaStackProps extends StackProps {
   /** LiveKit シグナリング用ドメイン (例: `media.example.com`)。`event-XXXXXXXX.${mediaDomainName}` で per-event 名を組み立てる。 */
   mediaDomainName?: string;
   /**
+   * ControlPlaneStack で事前作成した共有 VPC の情報 (R12-followup, N-1)。
+   * 指定時はこの VPC を参照し per-event VPC を作らない (イベント起動時間 2-3 分短縮)。
+   * 未指定時は従来通り per-event VPC を作成 (後方互換)。
+   */
+  sharedVpc?: {
+    vpcId: string;
+    vpcCidr: string;
+    availabilityZones: string[];
+    publicSubnetIds: string[];
+  };
+  /**
    * YouTube RTMP 取り込み URL (R12, ADR 0006 D-4)。
    * 例: `rtmp://a.rtmp.youtube.com/live2`。control-api の Egress 起動 API が参照し、
    * `startRoomCompositeEgress` の `streamOutputs.urls = [${rtmpUrl}/${streamKey}]` を組み立てる。
@@ -109,17 +120,25 @@ export class EventMediaStack extends Stack {
     Tags.of(this).add("stagecast:eventId", props.eventId);
     Tags.of(this).add("stagecast:ephemeral", "true");
 
-    // --- ネットワーク (このイベント専用。破棄で消える) ---
-    // NAT Gateway を廃止しコストをゼロに。全サービスをパブリックサブネットに配置し
-    // assignPublicIp で直接インターネットに出る。Egress/CaptionWorker の SG はインバウンド
-    // ルールが無いのでパブリック IP があっても外部からアクセスされない。
-    const vpc = new ec2.Vpc(this, "Vpc", {
-      maxAzs: 2,
-      natGateways: 0,
-      subnetConfiguration: [
-        { name: "Public", subnetType: ec2.SubnetType.PUBLIC, cidrMask: 24 },
-      ],
-    });
+    // --- ネットワーク ---
+    // 共有 VPC (ControlPlaneStack で事前作成) があればそれを参照、なければ per-event VPC を作成。
+    // 共有 VPC を使うとイベント起動時間が約 2-3 分短縮できる (VPC + subnet + route table 作成省略)。
+    // NAT Gateway は使わず、全サービスをパブリックサブネットに配置し assignPublicIp で直接インターネットに出る。
+    // Egress/CaptionWorker の SG はインバウンドルールが無いのでパブリック IP があっても外部からアクセスされない。
+    const vpc: ec2.IVpc = props.sharedVpc
+      ? ec2.Vpc.fromVpcAttributes(this, "SharedVpcRef", {
+          vpcId: props.sharedVpc.vpcId,
+          vpcCidrBlock: props.sharedVpc.vpcCidr,
+          availabilityZones: props.sharedVpc.availabilityZones,
+          publicSubnetIds: props.sharedVpc.publicSubnetIds,
+        })
+      : new ec2.Vpc(this, "Vpc", {
+          maxAzs: 2,
+          natGateways: 0,
+          subnetConfiguration: [
+            { name: "Public", subnetType: ec2.SubnetType.PUBLIC, cidrMask: 24 },
+          ],
+        });
 
     const cluster = new ecs.Cluster(this, "Cluster", {
       vpc,
