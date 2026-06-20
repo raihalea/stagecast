@@ -242,6 +242,8 @@ export class ControlPlaneStack extends Stack {
             "import{createRequire}from'node:module';const require=createRequire(import.meta.url);",
         },
         timeout: Duration.minutes(2),
+        // N3: 管理者投入の Custom Resource 経路を可視化。
+        tracing: lambda.Tracing.ACTIVE,
       });
       adminUserPool.grant(adminBootstrapFn, "cognito-idp:AdminCreateUser");
       const adminBootstrapProvider = new cr.Provider(this, "AdminBootstrapProvider", {
@@ -318,6 +320,8 @@ export class ControlPlaneStack extends Stack {
       memorySize: 512,
       // R12: LiveKit Egress 起動 (HTTP リクエスト) のため 30s に延長 (cold start + LiveKit API)。
       timeout: Duration.seconds(30),
+      // N3: X-Ray でリクエストフローを可視化 (Lambda → DynamoDB → Secrets Manager 等)。
+      tracing: lambda.Tracing.ACTIVE,
       environment: {
         METADATA_TABLE_NAME: metadataTable.tableName,
         ASSETS_BUCKET_NAME: assetsBucket.bucketName,
@@ -574,6 +578,8 @@ export class ControlPlaneStack extends Stack {
       },
       memorySize: 1024, // CDK synth ピーク用
       timeout: Duration.minutes(1),
+      // N3: X-Ray でテンプレ生成にかかる時間を可視化。
+      tracing: lambda.Tracing.ACTIVE,
       environment: {
         CDK_DEFAULT_ACCOUNT: this.account,
         CDK_DEFAULT_REGION: this.region,
@@ -633,6 +639,8 @@ export class ControlPlaneStack extends Stack {
       },
       memorySize: 256,
       timeout: Duration.minutes(2),
+      // N3: X-Ray で reconcile → CFN → ECS の trace を繋ぐ。
+      tracing: lambda.Tracing.ACTIVE,
       environment: {
         METADATA_TABLE_NAME: metadataTable.tableName,
         // CFN に渡す実行ロール ARN (R5)。reconcile は CreateStack 時に RoleARN として渡す。
