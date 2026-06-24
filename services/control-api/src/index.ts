@@ -36,6 +36,7 @@ export async function handler(
     method: event.requestContext.http.method,
     path: event.rawPath,
     headers: event.headers,
+    query: event.queryStringParameters,
     body: event.body ? safeJson(event.body) : undefined,
   };
   const res = await app.handle(req);

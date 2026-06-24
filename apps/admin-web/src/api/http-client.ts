@@ -20,6 +20,8 @@ import type {
   ControlApiClient,
   EgressStartResult,
   IssuedInvite,
+  ListEventsParams,
+  PagedEvents,
   PreviewTokenResult,
   StageTokenResult,
 } from "./types.js";
@@ -46,6 +48,14 @@ export class HttpControlApiClient implements ControlApiClient {
 
   listEvents(): Promise<EventDefinition[]> {
     return this.call("GET", "/events");
+  }
+  listEventsPaged(params: ListEventsParams): Promise<PagedEvents> {
+    const qs = new URLSearchParams();
+    if (params.limit != null) qs.set("limit", String(params.limit));
+    if (params.offset != null) qs.set("offset", String(params.offset));
+    if (params.status) qs.set("status", params.status);
+    if (params.sort) qs.set("sort", params.sort);
+    return this.call("GET", `/events?${qs.toString()}`);
   }
   createEvent(input: CreateEventInput): Promise<EventDefinition> {
     return this.call("POST", "/events", input);

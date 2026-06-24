@@ -35,6 +35,18 @@ export interface CreateEventInput {
   youtube?: YouTubeTarget;
 }
 
+export interface ListPagedOptions {
+  limit?: number;
+  offset?: number;
+  status?: EventStatus;
+  sort?: "asc" | "desc";
+}
+
+export interface PagedResult {
+  items: EventDefinition[];
+  total: number;
+}
+
 export type EventService = ReturnType<typeof createEventService>;
 
 /** タイトル最大長 (DynamoDB 項目肥大と UI 崩れの防止)。 */
@@ -107,6 +119,26 @@ export function createEventService(deps: {
     return repo.list();
   }
 
+  const DEFAULT_PAGE_LIMIT = 10;
+  const MAX_PAGE_LIMIT = 100;
+
+  async function listPaged(opts: ListPagedOptions = {}): Promise<PagedResult> {
+    let all = await repo.list();
+    if (opts.status) {
+      all = all.filter((e) => e.status === opts.status);
+    }
+    const desc = opts.sort !== "asc";
+    all.sort((a, b) => {
+      const diff = Date.parse(a.startsAt) - Date.parse(b.startsAt);
+      return desc ? -diff : diff;
+    });
+    const total = all.length;
+    const limit = Math.min(Math.max(opts.limit ?? DEFAULT_PAGE_LIMIT, 1), MAX_PAGE_LIMIT);
+    const offset = Math.max(opts.offset ?? 0, 0);
+    const items = all.slice(offset, offset + limit);
+    return { items, total };
+  }
+
   async function update(
     eventId: string,
     patch: Partial<CreateEventInput>,
@@ -152,5 +184,5 @@ export function createEventService(deps: {
     await deps.cleanupStorage?.(eventId);
   }
 
-  return { create, get, list, update, setStatus, remove };
+  return { create, get, list, listPaged, update, setStatus, remove };
 }

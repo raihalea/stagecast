@@ -24,6 +24,8 @@ import type {
   ControlApiClient,
   EgressStartResult,
   IssuedInvite,
+  ListEventsParams,
+  PagedEvents,
   PreviewTokenResult,
   StageTokenResult,
 } from "./types.js";
@@ -37,11 +39,19 @@ export class LocalControlApiClient implements ControlApiClient {
     this.app = app ?? buildControlApi({ inviteSecret: "local-dev-secret" });
   }
 
-  private async call<T>(method: string, path: string, body?: unknown, auth = true): Promise<T> {
+  private async call<T>(method: string, fullPath: string, body?: unknown, auth = true): Promise<T> {
+    const [path, qs] = fullPath.split("?", 2);
+    const query: Record<string, string> = {};
+    if (qs) {
+      for (const [k, v] of new URLSearchParams(qs)) {
+        query[k] = v;
+      }
+    }
     const res = await this.app.handle({
       method,
-      path,
+      path: path!,
       headers: auth ? { authorization: ADMIN_AUTH } : {},
+      query: qs ? query : undefined,
       body,
     });
     if (res.status >= 400) {
@@ -52,6 +62,14 @@ export class LocalControlApiClient implements ControlApiClient {
 
   listEvents(): Promise<EventDefinition[]> {
     return this.call("GET", "/events");
+  }
+  listEventsPaged(params: ListEventsParams): Promise<PagedEvents> {
+    const qs = new URLSearchParams();
+    if (params.limit != null) qs.set("limit", String(params.limit));
+    if (params.offset != null) qs.set("offset", String(params.offset));
+    if (params.status) qs.set("status", params.status);
+    if (params.sort) qs.set("sort", params.sort);
+    return this.call("GET", `/events?${qs.toString()}`);
   }
   createEvent(input: CreateEventInput): Promise<EventDefinition> {
     return this.call("POST", "/events", input);

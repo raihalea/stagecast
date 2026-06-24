@@ -33,7 +33,18 @@ import {
   TooltipProvider,
   type ThemeMode,
 } from "@stagecast/ui";
-import { ArrowDownUp, Check, LogOut, Plus, Settings, Trash2, Users, X } from "@stagecast/ui/icons";
+import {
+  ArrowDownUp,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  LogOut,
+  Plus,
+  Settings,
+  Trash2,
+  Users,
+  X,
+} from "@stagecast/ui/icons";
 import { HttpControlApiClient } from "./api/http-client.js";
 import { HttpAssetService } from "./api/http-asset-service.js";
 import { HttpArtifactService } from "./api/http-artifact-service.js";
@@ -44,6 +55,8 @@ import { SettingsPage } from "./components/SettingsPage.js";
 import { CognitoAuthClient, cognitoConfig } from "./auth/cognito.js";
 import type { RuntimeConfig } from "./config.js";
 import { toErrorMessage } from "./lib/errors.js";
+
+const PAGE_SIZE = 10;
 
 interface AuthState {
   status: "loading" | "anonymous" | "authenticated";
@@ -111,6 +124,7 @@ export function App(props: {
   const location = useLocation();
   const [auth, setAuth] = useState<AuthState>({ status: "loading" });
   const [events, setEvents] = useState<EventDefinition[]>([]);
+  const [totalEvents, setTotalEvents] = useState(0);
   const [eventsLoaded, setEventsLoaded] = useState(false);
   const [apiError, setApiError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
@@ -118,9 +132,12 @@ export function App(props: {
   const [theme, setTheme] = useState<ThemeMode>(readInitialTheme);
   const [statusFilter, setStatusFilter] = useState<EventStatus | "all">("draft");
   const [sortNewestFirst, setSortNewestFirst] = useState(true);
+  const [page, setPage] = useState(0);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+
+  const totalPages = Math.max(1, Math.ceil(totalEvents / PAGE_SIZE));
 
   useEffect(() => {
     applyTheme(theme);
@@ -170,10 +187,19 @@ export function App(props: {
   }, [authClient]);
 
   const refresh = useCallback(async () => {
-    const list = await client.listEvents();
-    setEvents(list);
+    const result = await client.listEventsPaged({
+      limit: PAGE_SIZE,
+      offset: page * PAGE_SIZE,
+      status: statusFilter === "all" ? undefined : statusFilter,
+      sort: sortNewestFirst ? "desc" : "asc",
+    });
+    setEvents(result.items);
+    setTotalEvents(result.total);
     setEventsLoaded(true);
-  }, [client]);
+    if (result.items.length === 0 && page > 0) {
+      setPage((p) => Math.max(0, p - 1));
+    }
+  }, [client, page, statusFilter, sortNewestFirst]);
 
   useEffect(() => {
     if (auth.status === "authenticated") void run(refresh);
@@ -182,19 +208,11 @@ export function App(props: {
   const create = (input: CreateEventInput) =>
     run(async () => {
       const created = await client.createEvent(input);
+      setPage(0);
       await refresh();
       setSheetOpen(false);
       navigate(`/events/${created.id}`);
     });
-
-  const filteredEvents = useMemo(() => {
-    let list = statusFilter === "all" ? events : events.filter((e) => e.status === statusFilter);
-    list = [...list].sort((a, b) => {
-      const diff = Date.parse(a.startsAt) - Date.parse(b.startsAt);
-      return sortNewestFirst ? -diff : diff;
-    });
-    return list;
-  }, [events, statusFilter, sortNewestFirst]);
 
   const deleteEvent = (id: string) =>
     run(async () => {
@@ -212,8 +230,8 @@ export function App(props: {
     });
 
   const selectableIds = useMemo(
-    () => new Set(filteredEvents.filter((e) => e.status !== "live").map((e) => e.id)),
-    [filteredEvents],
+    () => new Set(events.filter((e) => e.status !== "live").map((e) => e.id)),
+    [events],
   );
 
   const toggleSelectAll = () => {
@@ -241,6 +259,17 @@ export function App(props: {
       setBulkDeleteOpen(false);
       navigate("/events");
     });
+
+  const changeFilter = (s: EventStatus | "all") => {
+    setStatusFilter(s);
+    setPage(0);
+    exitSelectMode();
+  };
+
+  const toggleSort = () => {
+    setSortNewestFirst((v) => !v);
+    setPage(0);
+  };
 
   const login = async () => {
     if (!authClient) return;
@@ -376,7 +405,7 @@ export function App(props: {
                   variant="ghost"
                   size="icon-sm"
                   aria-label={sortNewestFirst ? "古い順にする" : "新しい順にする"}
-                  onClick={() => setSortNewestFirst((v) => !v)}
+                  onClick={toggleSort}
                   title={sortNewestFirst ? "新しい順" : "古い順"}
                 >
                   <ArrowDownUp className="size-3.5" />
@@ -390,7 +419,7 @@ export function App(props: {
             <button
               key={s}
               type="button"
-              onClick={() => setStatusFilter(s)}
+              onClick={() => changeFilter(s)}
               className={`rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors ${
                 statusFilter === s
                   ? "bg-text-primary text-surface-0"
@@ -409,12 +438,12 @@ export function App(props: {
               </li>
             ))}
           </ul>
-        ) : filteredEvents.length === 0 ? (
+        ) : events.length === 0 ? (
           <div className="px-3">
             <EmptyState
-              title={events.length === 0 ? "まだイベントがありません" : "該当なし"}
+              title={totalEvents === 0 ? "まだイベントがありません" : "該当なし"}
               description={
-                events.length === 0
+                totalEvents === 0
                   ? "上のボタンから作成"
                   : "フィルタ条件に一致するイベントがありません"
               }
@@ -422,8 +451,8 @@ export function App(props: {
             />
           </div>
         ) : (
-          <ul className="overflow-auto">
-            {filteredEvents.map((e) => (
+          <ul>
+            {events.map((e) => (
               <li key={e.id}>
                 <EventListItem
                   title={e.title}
@@ -442,6 +471,31 @@ export function App(props: {
               </li>
             ))}
           </ul>
+        )}
+        {eventsLoaded && totalPages > 1 && (
+          <div className="flex items-center justify-between border-t border-line-1 px-3 py-1.5">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="前のページ"
+              disabled={page === 0}
+              onClick={() => setPage((p) => p - 1)}
+            >
+              <ChevronLeft className="size-3.5" />
+            </Button>
+            <span className="text-[10px] tabular-nums text-text-tertiary">
+              {page + 1} / {totalPages}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="次のページ"
+              disabled={page >= totalPages - 1}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              <ChevronRight className="size-3.5" />
+            </Button>
+          </div>
         )}
         {selectMode && selectedIds.size > 0 && (
           <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
@@ -592,7 +646,46 @@ function EventDetailRoute(props: {
   onDelete: (id: string) => void;
 }) {
   const { id } = useParams<{ id: string }>();
-  const event = props.events.find((e) => e.id === id);
+  const fromList = props.events.find((e) => e.id === id);
+  const [fetched, setFetched] = useState<EventDefinition | undefined>();
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (fromList || !id) {
+      setFetched(undefined);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    props.client
+      .getEvent(id)
+      .then((e) => {
+        if (!cancelled) {
+          setFetched(e);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFetched(undefined);
+          setLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, fromList, props.client]);
+
+  const event = fromList ?? fetched;
+
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-1/3" />
+        <Skeleton className="h-40 w-full" />
+      </div>
+    );
+  }
 
   if (!event) {
     return (

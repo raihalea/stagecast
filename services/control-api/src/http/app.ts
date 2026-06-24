@@ -13,6 +13,7 @@ import {
   ValidationError,
   type CreateEventInput,
   type EventService,
+  type ListPagedOptions,
 } from "../usecases/events.js";
 import type { createInviteService } from "../usecases/invites.js";
 import type { createPresentationService } from "../usecases/presentation.js";
@@ -29,6 +30,7 @@ export interface HttpRequest {
   /** パス (例: /events/abc/invites)。 */
   path: string;
   headers: Record<string, string | undefined>;
+  query?: Record<string, string | undefined>;
   body?: unknown;
 }
 export interface HttpResponse {
@@ -132,7 +134,18 @@ export function createApp(deps: AppDeps) {
       if (!eventId) {
         if (req.method === "POST")
           return json(201, await events.create(body as unknown as CreateEventInput));
-        if (req.method === "GET") return json(200, await events.list());
+        if (req.method === "GET") {
+          const q = req.query ?? {};
+          if (q.limit || q.offset || q.status || q.sort) {
+            const opts: ListPagedOptions = {};
+            if (q.limit) opts.limit = Number(q.limit);
+            if (q.offset) opts.offset = Number(q.offset);
+            if (q.status) opts.status = q.status as ListPagedOptions["status"];
+            if (q.sort) opts.sort = q.sort as ListPagedOptions["sort"];
+            return json(200, await events.listPaged(opts));
+          }
+          return json(200, await events.list());
+        }
       } else if (segments.length === 2) {
         if (req.method === "GET") return json(200, await events.get(eventId));
         if (req.method === "PATCH") return json(200, await events.update(eventId, body));
@@ -206,18 +219,10 @@ export function createApp(deps: AppDeps) {
         //          event.youtube.rtmpUrl と event.youtube.streamKeyRef が設定済み。
         if (!egress) throw new ServiceUnavailableError("egress not configured");
         return json(202, await egress.start(eventId));
-      } else if (
-        segments[2] === "admin-token" &&
-        segments.length === 3 &&
-        req.method === "POST"
-      ) {
+      } else if (segments[2] === "admin-token" && segments.length === 3 && req.method === "POST") {
         if (!adminToken) throw new ServiceUnavailableError("admin token service not configured");
         return json(201, await adminToken.issue(eventId));
-      } else if (
-        segments[2] === "stage-token" &&
-        segments.length === 3 &&
-        req.method === "POST"
-      ) {
+      } else if (segments[2] === "stage-token" && segments.length === 3 && req.method === "POST") {
         // ADR 0014 D-4: admin が stage-web に入るための LiveKit token 発行。
         // identity は Cognito userId を使用 (admin-{userId})。
         if (!adminToken) throw new ServiceUnavailableError("admin token service not configured");
@@ -231,7 +236,8 @@ export function createApp(deps: AppDeps) {
         // admin-web / stage-web が composer-template を iframe で開く際に使う。
         // 認証は requireAdmin (Cognito JWT) で完了済 (R17-Phase1)。
         // 将来 R17-Phase3 で stage-web 用に invite token 検証経由のパスを追加検討。
-        if (!previewToken) throw new ServiceUnavailableError("preview token service not configured");
+        if (!previewToken)
+          throw new ServiceUnavailableError("preview token service not configured");
         return json(201, await previewToken.issue(eventId));
       }
     }

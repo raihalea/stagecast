@@ -381,6 +381,114 @@ describe("control-api integration (in-memory)", () => {
     expect(del.status).toBe(400);
   });
 
+  it("ページネーション付きでイベント一覧を取得できる", async () => {
+    const times = [
+      "2026-07-01T09:00:00Z",
+      "2026-07-02T09:00:00Z",
+      "2026-07-03T09:00:00Z",
+      "2026-07-04T09:00:00Z",
+      "2026-07-05T09:00:00Z",
+    ];
+    for (const t of times) {
+      await app.handle(
+        req({
+          method: "POST",
+          path: "/events",
+          headers: adminAuth,
+          body: { title: `E-${t}`, startsAt: t, caption },
+        }),
+      );
+    }
+
+    const page1 = await app.handle(
+      req({
+        method: "GET",
+        path: "/events",
+        headers: adminAuth,
+        query: { limit: "2", offset: "0", sort: "desc" },
+      }),
+    );
+    expect(page1.status).toBe(200);
+    const p1 = page1.body as { items: { title: string }[]; total: number };
+    expect(p1.total).toBe(5);
+    expect(p1.items).toHaveLength(2);
+    expect(p1.items[0]!.title).toBe("E-2026-07-05T09:00:00Z");
+
+    const page2 = await app.handle(
+      req({
+        method: "GET",
+        path: "/events",
+        headers: adminAuth,
+        query: { limit: "2", offset: "2", sort: "desc" },
+      }),
+    );
+    const p2 = page2.body as { items: { title: string }[]; total: number };
+    expect(p2.items).toHaveLength(2);
+    expect(p2.items[0]!.title).toBe("E-2026-07-03T09:00:00Z");
+
+    const page3 = await app.handle(
+      req({
+        method: "GET",
+        path: "/events",
+        headers: adminAuth,
+        query: { limit: "2", offset: "4", sort: "desc" },
+      }),
+    );
+    const p3 = page3.body as { items: { title: string }[]; total: number };
+    expect(p3.items).toHaveLength(1);
+  });
+
+  it("ステータスフィルタ付きのページネーション", async () => {
+    await app.handle(
+      req({
+        method: "POST",
+        path: "/events",
+        headers: adminAuth,
+        body: { title: "Draft1", startsAt: "2026-07-01T09:00:00Z", caption },
+      }),
+    );
+    const liveId = await createEvent(app, "Live1");
+    await app.handle(
+      req({
+        method: "POST",
+        path: `/events/${liveId}/status`,
+        headers: adminAuth,
+        body: { status: "live" },
+      }),
+    );
+
+    const drafts = await app.handle(
+      req({
+        method: "GET",
+        path: "/events",
+        headers: adminAuth,
+        query: { limit: "10", offset: "0", status: "draft" },
+      }),
+    );
+    const d = drafts.body as { items: { title: string }[]; total: number };
+    expect(d.total).toBe(1);
+    expect(d.items[0]!.title).toBe("Draft1");
+
+    const lives = await app.handle(
+      req({
+        method: "GET",
+        path: "/events",
+        headers: adminAuth,
+        query: { status: "live" },
+      }),
+    );
+    const l = lives.body as { items: { title: string }[]; total: number };
+    expect(l.total).toBe(1);
+    expect(l.items[0]!.title).toBe("Live1");
+  });
+
+  it("クエリなしの GET /events は従来通り配列を返す", async () => {
+    await createEvent(app, "Test");
+    const res = await app.handle(req({ method: "GET", path: "/events", headers: adminAuth }));
+    expect(Array.isArray(res.body)).toBe(true);
+    expect((res.body as unknown[]).length).toBe(1);
+  });
+
   it("削除時に関連ストレージが cleanup される", async () => {
     const deletedPrefixes: string[] = [];
     const app2 = buildControlApi({

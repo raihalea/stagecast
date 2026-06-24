@@ -59,8 +59,21 @@ export interface StageTokenResult {
   expiresAt: number;
 }
 
+export interface ListEventsParams {
+  limit?: number;
+  offset?: number;
+  status?: EventStatus;
+  sort?: "asc" | "desc";
+}
+
+export interface PagedEvents {
+  items: EventDefinition[];
+  total: number;
+}
+
 export interface ControlApiClient {
   listEvents(): Promise<EventDefinition[]>;
+  listEventsPaged(params: ListEventsParams): Promise<PagedEvents>;
   createEvent(input: CreateEventInput): Promise<EventDefinition>;
   getEvent(id: string): Promise<EventDefinition>;
   updateEvent(id: string, patch: Partial<CreateEventInput>): Promise<EventDefinition>;
