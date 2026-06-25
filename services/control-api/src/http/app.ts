@@ -23,6 +23,7 @@ import type { AdminTokenService } from "../usecases/admin-token.js";
 import type { EgressService } from "../usecases/egress.js";
 import type { PreviewTokenService } from "../usecases/preview-token.js";
 import type { SettingsService } from "../usecases/settings.js";
+import type { EventRequestService } from "../usecases/event-requests.js";
 
 export interface HttpRequest {
   method: string;
@@ -62,6 +63,8 @@ export interface AppDeps {
   adminToken?: AdminTokenService;
   /** Preview LiveKit token 発行 (R17 / ADR 0012 D-6: admin-web/stage-web iframe プレビュー用)。未設定なら省略され 503。 */
   previewToken?: PreviewTokenService;
+  /** イベントリクエスト管理。公開エンドポイント (POST /event-requests) + 管理者エンドポイント。 */
+  eventRequests?: EventRequestService;
 }
 
 const json = (status: number, body: unknown): HttpResponse => ({ status, body });
@@ -79,6 +82,7 @@ export function createApp(deps: AppDeps) {
     egress,
     adminToken,
     previewToken,
+    eventRequests,
   } = deps;
 
   async function requireAdmin(req: HttpRequest): Promise<AdminPrincipal> {
@@ -120,6 +124,27 @@ export function createApp(deps: AppDeps) {
       if (!verified.valid) return json(401, { ok: false, reason: verified.reason });
       const result = await previewToken.issue(verified.eventId);
       return json(201, result);
+    }
+
+    // 公開: イベントリクエスト作成 (モデレーター向け、認証不要)
+    if (req.method === "POST" && req.path === "/event-requests") {
+      if (!eventRequests) throw new ServiceUnavailableError("event requests not configured");
+      return json(201, await eventRequests.create(body as never));
+    }
+
+    // 公開: 公開イベント一覧 (タイトル・時間帯のみ、draft 除外)
+    if (req.method === "GET" && req.path === "/events/public") {
+      const all = await events.list();
+      const publicEvents = all
+        .filter((e) => e.status !== "draft")
+        .map((e) => ({
+          id: e.id,
+          title: e.title,
+          startsAt: e.startsAt,
+          endsAt: e.endsAt,
+          status: e.status,
+        }));
+      return json(200, publicEvents);
     }
 
     // 以降は管理者専用 (Cognito)
@@ -255,6 +280,23 @@ export function createApp(deps: AppDeps) {
         // サーバ側で API キー/シークレットを生成し Secret に保存する。
         // 生成値はレスポンスに含めない (configured のみ)。
         return json(200, await settings.regenerateLiveKit());
+      }
+    }
+
+    // /event-requests (管理者: 一覧・承認・却下)
+    if (segments[0] === "event-requests") {
+      if (!eventRequests) throw new ServiceUnavailableError("event requests not configured");
+      if (!segments[1]) {
+        if (req.method === "GET") return json(200, await eventRequests.list());
+      } else if (segments[2] === "approve" && req.method === "POST") {
+        const result = await eventRequests.approve(segments[1]);
+        return json(200, result);
+      } else if (segments[2] === "reject" && req.method === "POST") {
+        const result = await eventRequests.reject(
+          segments[1],
+          body.reason as string | undefined,
+        );
+        return json(200, result);
       }
     }
 

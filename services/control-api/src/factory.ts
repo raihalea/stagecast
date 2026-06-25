@@ -8,11 +8,13 @@ import { randomUUID } from "node:crypto";
 import { FakeAdminAuthVerifier, type AdminAuthVerifier } from "./auth/admin-auth.js";
 import {
   MemoryEventRepository,
+  MemoryEventRequestRepository,
   MemoryInviteTokenRepository,
   MemoryPresentationRepository,
 } from "./repo/memory.js";
 import type {
   EventRepository,
+  EventRequestRepository,
   InviteTokenRepository,
   PresentationRepository,
 } from "./repo/types.js";
@@ -41,12 +43,14 @@ import {
 } from "./assets/artifact-download.js";
 import { createApp } from "./http/app.js";
 import type { SettingsService } from "./usecases/settings.js";
+import { createEventRequestService } from "./usecases/event-requests.js";
 
 export interface FactoryConfig {
   auth?: AdminAuthVerifier;
   eventRepo?: EventRepository;
   inviteRepo?: InviteTokenRepository;
   presentationRepo?: PresentationRepository;
+  eventRequestRepo?: EventRequestRepository;
   inviteSecret?: string;
   inviteBaseUrl?: string;
   /** LiveKit トークン発行器 (入室時に使用)。未指定なら環境変数から構築を試みる。 */
@@ -158,6 +162,14 @@ export function buildControlApi(config: FactoryConfig = {}) {
     ? createPreviewTokenService({ events, liveKitMinter })
     : undefined;
 
+  const eventRequests = createEventRequestService({
+    repo:
+      config.eventRequestRepo ?? new MemoryEventRequestRepository(),
+    events,
+    newId,
+    now,
+  });
+
   return createApp({
     auth: config.auth ?? new FakeAdminAuthVerifier(),
     events,
@@ -170,5 +182,6 @@ export function buildControlApi(config: FactoryConfig = {}) {
     egress,
     adminToken,
     previewToken,
+    eventRequests,
   });
 }
